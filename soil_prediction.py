@@ -31,7 +31,7 @@ def err(real,pred):
 	#Returns the mean columnwise root mean square error
 	return np.mean(np.mean((real-pred)**2,axis=0)**0.5)
 
-def predict_values(train,labels,test,regressor,regularization,random_subspace,num_classifier,max_iter=50000):
+def tp_regressor(train,labels,test,regressor,regularization,max_iter=50000):
 	"""
 		Function to train regressor on each feature vector by itself
 		and predict values on 'test'
@@ -41,39 +41,47 @@ def predict_values(train,labels,test,regressor,regularization,random_subspace,nu
 			max_iter : for regression
 	"""
 
+	pr=[]
+	for i in xrange(5):
+
+		#### TODO:Add more regressors here #####
+
+		if regressor=='Lasso':
+			r=Lasso(alpha=regularization,max_iter=max_iter)
+		elif regressor=='SVR':
+			r=SVR(C=regularization)
+		elif regressor=='Ridge':
+			r=Ridge(alpha=regularization)
+
+		#Fit
+		r.fit(train,labels[:,i])
+		#Predict
+		pr.append(r.predict(test).tolist())
+
+	return pr
+
+def predict_values(train,labels,test,regressor,regularization,random_subspace,num_regressor):
+	
+
 	pred=np.zeros((5,test.shape[0]))
-	print "Training and predicting.."
+	print "Training and predicting",
 
 	if random_subspace>0:
-
-		for _ in xrange(num_classifier):
-
-			pr=[]
+		print "with random subspace method;",random_subspace,"fraction of features",num_regressor,"number of regressors"
+		for _ in xrange(num_regressor):
 			smpl=random.sample(range(train.shape[1]),int(random_subspace*train.shape[1]))
-
-			for i in xrange(5):
-
-				#### TODO:Add more regressors here #####
-
-				if regressor=='Lasso':
-					r=Lasso(alpha=regularization,max_iter=max_iter)
-				elif regressor=='SVR':
-					r=SVR(C=regularization)
-				elif regressor=='Ridge':
-					r=Ridge(alpha=regularization)
-
-				#Fit
-				r.fit(train[:,smpl],labels[:,i])
-				#Predict
-				pr.append(r.predict(test[:,smpl]).tolist())
-
+			pr=tp_regressor(train[:,smpl],labels,test[:,smpl],regressor,regularization)
 			pred=pred+np.asarray(pr,dtype=float)
 
-		pred=pred/num_classifier
+		pred=pred/num_regressor
+	else:
+		print
+		pr=tp_regressor(train,labels,test,regressor,regularization)
+		pred=pred+np.asarray(pr,dtype=float)
 
 	return pred.T
 
-def cross_validate(train_n,labels_n,random_subspace,num_classifier,folds=5,dim_reduce='',regressor='SVR',regularization=3000):
+def cross_validate(train_n,labels_n,random_subspace,num_regressor,folds=5,dim_reduce='',regressor='SVR',regularization=3000):
 
 	if dim_reduce=='lle':
 		print "LLE.."
@@ -104,18 +112,18 @@ def cross_validate(train_n,labels_n,random_subspace,num_classifier,folds=5,dim_r
 		train_X,trainlabel=train_n[tr_in],labels_n[tr_in]
 		test_X,testlabel=train_n[tst_in],labels_n[tst_in]
 
-		pred=predict_values(train_X,trainlabel,test_X,regressor,regularization,random_subspace=random_subspace,num_classifier=num_classifier)
+		pred=predict_values(train_X,trainlabel,test_X,regressor,regularization,random_subspace=random_subspace,num_regressor=num_regressor)
 
 		er.append(err(testlabel,pred))
 		f+=1
 
 	return er,np.mean(er),np.std(er)
 
-def finalize(train_n,labels_n,test_n,regressor='SVR',regularization=3000):
+def finalize(train_n,labels_n,test_n,random_subspace,num_regressor,regressor='SVR',regularization=3000):
 
 	#Writes output for submission
 
-	pred=predict_values(train_n,labels_n,test_n,regressor,regularization)
+	pred=predict_values(train_n,labels_n,test_n,regressor,regularization,random_subspace,num_regressor)
 
 	print "Writing to file..\n"
 	sample=pd.read_csv('sample_submission.csv')
@@ -137,7 +145,7 @@ if __name__ == '__main__':
 	parser.add_argument("-d","--dimred",default='',help="'pca' 'lle' or 'kpca' for dimensionality reduction")
 	parser.add_argument("-f","--folds",type=int,default=10,help="number of folds for CV")
 	parser.add_argument("-b","--randomsub",type=float,default=0.5,help="fraction of features to use")
-	parser.add_argument("-c","--numclassifier",type=int,default=10,help="number of classifiers to train")
+	parser.add_argument("-nr","--numregressor",type=int,default=10,help="number of regressors to train")
 	args=parser.parse_args()
 
 	train,labels,test=get_data()
@@ -152,13 +160,13 @@ if __name__ == '__main__':
 	print
 
 	if args.option=='v':
-		e,m,s=cross_validate(train_n,labels_n,folds=args.folds,dim_reduce=args.dimred,regressor=args.regressor,regularization=args.regularization,random_subspace=args.randomsub,num_classifier=args.numclassifier)
+		e,m,s=cross_validate(train_n,labels_n,folds=args.folds,dim_reduce=args.dimred,regressor=args.regressor,regularization=args.regularization,random_subspace=args.randomsub,num_regressor=args.numregressor)
 		print "Errors :",e
 		print "Mean :",m
 		print "Std :",s
 
 	elif args.option=='s':
-		finalize(train_n,labels_n,test_n,regressor=args.regressor,regularization=args.regularization)
+		finalize(train_n,labels_n,test_n,args.randomsub,args.numregressor,args.regressor,args.regularization)
 
 	else:
 		raise Exception("Wrong option, see help")
