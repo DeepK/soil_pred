@@ -61,7 +61,9 @@ def tp_regressor(train,labels,test,regressor,regularization,max_iter=50000):
 	return pr
 
 def predict_values(train,labels,test,regressor,regularization,random_subspace,num_regressor):
-	
+
+	#This is where the regressor is trained and values predicted for
+	#CV or submission
 
 	pred=np.zeros((5,test.shape[0]))
 	print "Training and predicting",
@@ -81,7 +83,17 @@ def predict_values(train,labels,test,regressor,regularization,random_subspace,nu
 
 	return pred.T
 
-def cross_validate(train_n,labels_n,random_subspace,num_regressor,folds=5,dim_reduce='',regressor='SVR',regularization=3000):
+def btstrap(train,labels,test,regressor,regularization,random_subspace,num_regressor,bootstrap):
+
+	print "Booststrapping:"
+	pred=np.zeros((test.shape[0],5))
+	for _ in xrange(bootstrap):
+		smpl=np.random.random_integers(0,train.shape[0]-1,train.shape[0]-1)
+		pred=pred+predict_values(train[smpl,:],labels[smpl,:],test,regressor,regularization,random_subspace,num_regressor)
+	pred=pred/bootstrap
+	return pred
+
+def cross_validate(train_n,labels_n,random_subspace,num_regressor,bootstrap,folds=5,dim_reduce='',regressor='SVR',regularization=3000):
 
 	if dim_reduce=='lle':
 		print "LLE.."
@@ -112,18 +124,24 @@ def cross_validate(train_n,labels_n,random_subspace,num_regressor,folds=5,dim_re
 		train_X,trainlabel=train_n[tr_in],labels_n[tr_in]
 		test_X,testlabel=train_n[tst_in],labels_n[tst_in]
 
-		pred=predict_values(train_X,trainlabel,test_X,regressor,regularization,random_subspace=random_subspace,num_regressor=num_regressor)
+		if bootstrap>0:
+			pred=btstrap(train_X,trainlabel,test_X,regressor,regularization,random_subspace,num_regressor,bootstrap)
+		else:
+			pred=predict_values(train_X,trainlabel,test_X,regressor,regularization,random_subspace,num_regressor)
 
 		er.append(err(testlabel,pred))
 		f+=1
 
 	return er,np.mean(er),np.std(er)
 
-def finalize(train_n,labels_n,test_n,random_subspace,num_regressor,regressor='SVR',regularization=3000):
+def finalize(train_n,labels_n,test_n,random_subspace,num_regressor,bootstrap,regressor='SVR',regularization=3000):
 
 	#Writes output for submission
 
-	pred=predict_values(train_n,labels_n,test_n,regressor,regularization,random_subspace,num_regressor)
+	if bootstrap>0:
+		pred=btstrap(train_n,labels_n,test_n,regressor,regularization,random_subspace,num_regressor,bootstrap)
+	else:
+		pred=predict_values(train_n,labels_n,test_n,regressor,regularization,random_subspace,num_regressor)
 
 	print "Writing to file..\n"
 	sample=pd.read_csv('sample_submission.csv')
@@ -146,6 +164,7 @@ if __name__ == '__main__':
 	parser.add_argument("-f","--folds",type=int,default=10,help="number of folds for CV")
 	parser.add_argument("-b","--randomsub",type=float,default=0.5,help="fraction of features to use")
 	parser.add_argument("-nr","--numregressor",type=int,default=10,help="number of regressors to train")
+	parser.add_argument("-bt","--numboot",type=int,default=10,help="number of bootstraps")
 	args=parser.parse_args()
 
 	train,labels,test=get_data()
@@ -160,13 +179,13 @@ if __name__ == '__main__':
 	print
 
 	if args.option=='v':
-		e,m,s=cross_validate(train_n,labels_n,folds=args.folds,dim_reduce=args.dimred,regressor=args.regressor,regularization=args.regularization,random_subspace=args.randomsub,num_regressor=args.numregressor)
+		e,m,s=cross_validate(train_n,labels_n,folds=args.folds,dim_reduce=args.dimred,regressor=args.regressor,regularization=args.regularization,random_subspace=args.randomsub,num_regressor=args.numregressor,bootstrap=args.numboot)
 		print "Errors :",e
 		print "Mean :",m
 		print "Std :",s
 
 	elif args.option=='s':
-		finalize(train_n,labels_n,test_n,args.randomsub,args.numregressor,args.regressor,args.regularization)
+		finalize(train_n,labels_n,test_n,args.randomsub,args.numregressor,args.numboot,args.regressor,args.regularization)
 
 	else:
 		raise Exception("Wrong option, see help")
