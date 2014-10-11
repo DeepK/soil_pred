@@ -121,6 +121,8 @@ def cross_validate(train_n,labels_n,random_subspace,num_regressor,bootstrap,appe
 
 	if len(dim_reduce)!=0:
 		train_new=dimreduction(train_n,dim_reduce)
+	else:
+		train_new=train_n
 
 	if append=='y':
 		train_n=np.hstack((train_n,train_new))
@@ -155,6 +157,8 @@ def finalize(train_n,labels_n,test_n,random_subspace,num_regressor,bootstrap,dim
 
 	if len(dim_reduce)!=0:
 		all_data_new=dimreduction(all_data,dim_reduce)
+	else:
+		all_data_new=all_data
 
 	if append=='y':
 		all_data=np.hstack((all_data,all_data_new))
