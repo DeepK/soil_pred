@@ -7,16 +7,20 @@ from sklearn.decomposition import PCA
 from sklearn.decomposition import KernelPCA
 from sklearn.decomposition import FastICA
 from sklearn.svm import SVR
+from sklearn.ensemble import ExtraTreesRegressor as ETR
+from sklearn import preprocessing
 sys.path.append('/home/deep/xgboost/wrapper')
 import xgboost as xgb
 
-def get_data():
+def get_data(drop='n'):
 
 	#Read file
 	train=pd.read_csv('training.csv')
-	labels=labels = train[['Ca','P','pH','SOC','Sand']].values
+	labels=train[['Ca','P','pH','SOC','Sand']].values
 	#Don't need the labels in the train set
 	train.drop(['Ca','P','pH','SOC','Sand','PIDN'],axis=1,inplace=True)
+	if drop=='y':
+		train.drop(['m2379.76','m2377.83','m2375.9','m2373.97','m2372.04','m2370.11','m2368.18','m2366.26','m2364.33','m2362.4','m2360.47','m2358.54','m2356.61','m2354.68','m2352.76'],axis=1,inplace=True)
 	#Must replace strings with ints before converting to numpy array
 	train.replace('Topsoil',1,inplace=True)
 	train.replace('Subsoil',0,inplace=True)
@@ -24,6 +28,8 @@ def get_data():
 	#Similar process
 	test=pd.read_csv('sorted_test.csv')
 	test.drop(['PIDN'],axis=1,inplace=True)
+	if drop=='y':
+		test.drop(['m2379.76','m2377.83','m2375.9','m2373.97','m2372.04','m2370.11','m2368.18','m2366.26','m2364.33','m2362.4','m2360.47','m2358.54','m2356.61','m2354.68','m2352.76'],axis=1,inplace=True)
 	test.replace('Topsoil',1,inplace=True)
 	test.replace('Subsoil',0,inplace=True)
 
@@ -52,9 +58,11 @@ def tp_regressor(train,labels,test,regressor,regularization,max_iter=50000):
 		if regressor=='Lasso':
 			r=Lasso(alpha=regularization,max_iter=max_iter)
 		elif regressor=='SVR':
-			r=SVR(C=regularization)
+			r=SVR(C=regularization,epsilon=0.048)
 		elif regressor=='Ridge':
 			r=Ridge(alpha=regularization)
+		elif regressor=='ExtraTrees':
+			r=ETR(n_estimators=1000,n_jobs=3)
 		elif regressor=='GBoost':
 			xgmat=xgb.DMatrix(train,label=labels[:,i])
 
@@ -117,7 +125,7 @@ def btstrap(train,labels,test,regressor,regularization,random_subspace,num_regre
 	pred=pred/bootstrap
 	return pred
 
-def cross_validate(train_n,labels_n,random_subspace,num_regressor,bootstrap,append='n',folds=5,dim_reduce='',regressor='SVR',regularization=3000):
+def cross_validate(train_n,labels_n,random_subspace,num_regressor,bootstrap,standardize='n',append='n',folds=5,dim_reduce='',regressor='SVR',regularization=3000):
 
 	if len(dim_reduce)!=0:
 		train_new=dimreduction(train_n,dim_reduce)
@@ -140,6 +148,12 @@ def cross_validate(train_n,labels_n,random_subspace,num_regressor,bootstrap,appe
 		train_X,trainlabel=train_n[tr_in],labels_n[tr_in]
 		test_X,testlabel=train_n[tst_in],labels_n[tst_in]
 
+		if standardize=='y':
+			print "Whitening.."
+			scaler=preprocessing.StandardScaler().fit(train_X)
+			train_X=scaler.transform(train_X)
+			test_X=scaler.transform(test_X)
+
 		if bootstrap>0:
 			pred=btstrap(train_X,trainlabel,test_X,regressor,regularization,random_subspace,num_regressor,bootstrap)
 		else:
@@ -150,7 +164,7 @@ def cross_validate(train_n,labels_n,random_subspace,num_regressor,bootstrap,appe
 
 	return er,np.mean(er),np.std(er)
 
-def finalize(train_n,labels_n,test_n,random_subspace,num_regressor,bootstrap,dim_reduce,append='n',regressor='SVR',regularization=3000):
+def finalize(train_n,labels_n,test_n,random_subspace,num_regressor,bootstrap,dim_reduce,standardize='n',append='n',regressor='SVR',regularization=3000):
 
 	r_train=train_n.shape[0]
 	all_data=np.vstack((train_n,test_n))
@@ -167,6 +181,12 @@ def finalize(train_n,labels_n,test_n,random_subspace,num_regressor,bootstrap,dim
 
 	train_n=all_data[0:r_train,:]
 	test_n=all_data[r_train:,:]
+
+	if standardize=='y':
+		print "Whitening..\n"
+		scaler=preprocessing.StandardScaler().fit(train_n)
+		train_n=scaler.transform(train_n)
+		test_n=scaler.transform(test_n)
 
 	#Writes output for submission
 
@@ -212,12 +232,19 @@ def dimreduction(data,dim_reduce):
 
 	return data
 
+def feature_select(train,labels,test):
+
+	r=ETR(n_estimators=1000,n_jobs=3)
+	r.fit(train,labels)
+
+	return r.transform(train),r.transform(test)
+
 if __name__ == '__main__':
 
 	#Adding arguments to be accepted and parsed
 	parser=argparse.ArgumentParser()
 	parser.add_argument("-r","--regularization",type=float,default=3000.0,help="regularization parameter (C for SVR, lambda for regression)")
-	parser.add_argument("-g","--regressor",default="SVR",help="regressor name (SVR or Ridge or Lasso or GBoost)")
+	parser.add_argument("-g","--regressor",default="SVR",help="regressor name (SVR or Ridge or Lasso or GBoost or ExtraTrees)")
 	parser.add_argument("-o","--option",default='v',help="'v' for k fold CV, 's' for producing submission file")
 	parser.add_argument("-d","--dimred",default='',help="'pca' 'lle' 'ica' or 'kpca' for dimensionality reduction")
 	parser.add_argument("-f","--folds",type=int,default=10,help="number of folds for CV")
@@ -225,9 +252,12 @@ if __name__ == '__main__':
 	parser.add_argument("-nr","--numregressor",type=int,default=10,help="number of regressors to train")
 	parser.add_argument("-bt","--numboot",type=int,default=10,help="number of bootstraps")
 	parser.add_argument("-a","--append",default='n',help="'y' to append features after dimensionality reduction")
+	parser.add_argument("-s","--stdrd",default='n',help="'y' to whiten data")
+	parser.add_argument("-dr","--drop",default='n',help="'y' to drop CO2 spectra")
+	parser.add_argument("-fs","--featselect",default='n',help="'y' to turn on feature selection")
 	args=parser.parse_args()
 
-	train,labels,test=get_data()
+	train,labels,test=get_data(args.drop)
 
 	#Convert to numpy arrays
 	train_n=np.asarray(train,dtype=float)
@@ -235,17 +265,20 @@ if __name__ == '__main__':
 	labels_n=np.asarray(labels,dtype=float)
 
 	print "regressor :",args.regressor
-	print "Regularization :",args.regularization
 	print
 
+	if args.featselect=='y':
+		print "Feature selection via Extra Trees feature importances..\n"
+		train_n,test_n=feature_select(train_n,labels_n,test_n)
+
 	if args.option=='v':
-		e,m,s=cross_validate(train_n,labels_n,folds=args.folds,dim_reduce=args.dimred,regressor=args.regressor,regularization=args.regularization,random_subspace=args.randomsub,num_regressor=args.numregressor,bootstrap=args.numboot,append=args.append)
+		e,m,s=cross_validate(train_n,labels_n,folds=args.folds,dim_reduce=args.dimred,regressor=args.regressor,regularization=args.regularization,random_subspace=args.randomsub,num_regressor=args.numregressor,bootstrap=args.numboot,append=args.append,standardize=args.stdrd)
 		print "Errors :",e
 		print "Mean :",m
 		print "Std :",s
 
 	elif args.option=='s':
-		finalize(train_n,labels_n,test_n,args.randomsub,args.numregressor,args.numboot,args.dimred,args.append,args.regressor,args.regularization)
+		finalize(train_n,labels_n,test_n,args.randomsub,args.numregressor,args.numboot,args.dimred,args.stdrd,args.append,args.regressor,args.regularization)
 
 	else:
 		raise Exception("Wrong option, see help")
