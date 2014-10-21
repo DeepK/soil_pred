@@ -58,7 +58,7 @@ def tp_regressor(train,labels,test,regressor,regularization,max_iter=50000):
 		if regressor=='Lasso':
 			r=Lasso(alpha=regularization,max_iter=max_iter)
 		elif regressor=='SVR':
-			r=SVR(C=regularization,epsilon=0.048)
+			r=SVR(C=regularization,epsilon=0.052)
 		elif regressor=='Ridge':
 			r=Ridge(alpha=regularization)
 		elif regressor=='ExtraTrees':
